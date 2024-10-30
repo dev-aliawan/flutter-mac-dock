@@ -1,16 +1,19 @@
-# flutter_mac_dock
+# Flutter Mac Dock
 
-A Mac-style dock implementation in Flutter with smooth animations and reorderable icons.
+A sleek, animated macOS-style dock implementation in Flutter with drag-and-drop functionality.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- 🔄 Drag and drop reordering
+- 💫 Smooth animations
+- 🎨 Customizable icons & colors
+- 🌟 Glass effect backdrop
+- 📱 Responsive design
 
-A few resources to get you started if this is your first Flutter project:
+## Requirements
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Flutter >= 3.24.3
+Dart >= 3.5.3
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
