@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../constants/dock_constants.dart';
+import '../controllers/dock_animation_controller.dart';
+import '../controllers/dock_position_controller.dart';
+import '../controllers/dock_state_controller.dart';
 import '../models/dock_item.dart';
 import 'dock_container.dart';
 import 'dock_item_widget.dart';
@@ -17,11 +20,22 @@ class Dock extends StatefulWidget {
   State<Dock> createState() => _DockState();
 }
 
-class _DockState extends State<Dock> {
-  late final List<DockItem> _items = List.from(widget.items);
-  int? _draggedIndex;
-  int? _targetIndex;
-  bool _isOutsideDock = false;
+class _DockState extends State<Dock> with SingleTickerProviderStateMixin {
+  late final DockAnimationController _animationController;
+  late final DockStateController _stateController;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = DockAnimationController(this);
+    _stateController = DockStateController(List.from(widget.items));
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,20 +43,27 @@ class _DockState extends State<Dock> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(_items.length, (index) {
-          return _buildAnimatedItem(index);
-        }),
+        children:
+            List.generate(_stateController.items.length, _buildAnimatedItem),
       ),
     );
   }
 
   Widget _buildAnimatedItem(int index) {
     return AnimatedSlide(
-      duration: Duration(milliseconds: _targetIndex != null ? 200 : 0),
-      offset: _calculateOffset(index),
+      duration: Duration(
+          milliseconds: _stateController.targetIndex != null ? 200 : 0),
+      offset: DockPositionController.calculateOffset(
+        index,
+        _stateController.draggedIndex,
+        _stateController.targetIndex,
+        _stateController.isOutsideDock,
+      ),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        width: _shouldShrink(index) ? 0 : DockConstants.baseWidth,
+        curve: Curves.easeInOut,
+        width:
+            _stateController.shouldShrink(index) ? 0 : DockConstants.baseWidth,
         child: _buildDraggableItem(index),
       ),
     );
@@ -53,42 +74,52 @@ class _DockState extends State<Dock> {
       data: index,
       feedback: Material(
         color: Colors.transparent,
-        child: DockItemWidget(item: _items[index]),
+        child: ScaleTransition(
+          scale: _animationController.scaleAnimation,
+          child: DockItemWidget(item: _stateController.items[index]),
+        ),
       ),
       childWhenDragging: Container(
         margin: const EdgeInsets.symmetric(
           horizontal: DockConstants.itemSpacing / 2,
         ),
       ),
-      onDragStarted: () => _handleDragStart(index),
-      onDragEnd: _handleDragEnd,
+      onDragStarted: () {
+        setState(() {
+          _stateController.handleDragStart(index);
+        });
+        _animationController.forward();
+      },
+      onDragEnd: (details) {
+        _animationController.reverse();
+        setState(() {
+          _stateController.handleDragEnd();
+        });
+      },
       onDragUpdate: _handleDragUpdate,
-      child: DragTarget<int>(
-        onWillAcceptWithDetails: (details) => details.data != index,
-        builder: (context, candidateData, rejectedData) {
-          return DockItemWidget(item: _items[index]);
-        },
-      ),
+      child: _buildDragTarget(index),
     );
   }
 
-  void _handleDragStart(int index) {
-    setState(() {
-      _draggedIndex = index;
-      _targetIndex = index;
-    });
-  }
-
-  void _handleDragEnd(DraggableDetails details) {
-    setState(() {
-      if (_targetIndex != null && !_isOutsideDock) {
-        final item = _items.removeAt(_draggedIndex!);
-        _items.insert(_targetIndex!, item);
-      }
-      _targetIndex = null;
-      _draggedIndex = null;
-      _isOutsideDock = false;
-    });
+  Widget _buildDragTarget(int index) {
+    return DragTarget<int>(
+      onWillAcceptWithDetails: (details) => details.data != index,
+      onAcceptWithDetails: (details) {
+        setState(() {
+          _stateController.reorderItems(details.data, index);
+        });
+      },
+      builder: (context, candidateData, rejectedData) {
+        return AnimatedScale(
+          duration: const Duration(milliseconds: 200),
+          scale: _stateController.isDragging &&
+                  _stateController.draggedIndex == index
+              ? 0.0
+              : 1.0,
+          child: DockItemWidget(item: _stateController.items[index]),
+        );
+      },
+    );
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
@@ -96,64 +127,25 @@ class _DockState extends State<Dock> {
     final Offset localPosition = box.globalToLocal(details.globalPosition);
     final bool isOutside = !box.size.contains(localPosition);
 
-    if (isOutside != _isOutsideDock) {
+    if (isOutside != _stateController.isOutsideDock) {
       setState(() {
-        _isOutsideDock = isOutside;
+        _stateController.isOutsideDock = isOutside;
       });
     }
 
     if (!isOutside) {
-      _updateTargetIndex(localPosition);
-    }
-  }
-
-  bool _shouldShrink(int index) {
-    return _draggedIndex == index && _isOutsideDock;
-  }
-
-  Offset _calculateOffset(int index) {
-    if (_draggedIndex == null || _targetIndex == null || _isOutsideDock) {
-      return Offset.zero;
-    }
-
-    if (_draggedIndex! < _targetIndex!) {
-      if (index > _draggedIndex! && index <= _targetIndex!) {
-        return const Offset(-1.0, 0.0);
-      }
-    } else if (_draggedIndex! > _targetIndex!) {
-      if (index < _draggedIndex! && index >= _targetIndex!) {
-        return const Offset(1.0, 0.0);
-      }
-    }
-    return Offset.zero;
-  }
-
-  void _updateTargetIndex(Offset position) {
-    if (_draggedIndex == null) return;
-
-    final double dx = position.dx;
-    for (int i = 0; i < _items.length; i++) {
-      if (i == _draggedIndex) continue;
-
-      final double itemStart =
-          i * (DockConstants.baseWidth + DockConstants.itemSpacing);
-      final double itemCenter =
-          itemStart + (DockConstants.baseWidth + DockConstants.itemSpacing) / 2;
-
-      if (dx < itemCenter) {
-        if (_targetIndex != i) {
-          setState(() {
-            _targetIndex = i;
-          });
-        }
-        return;
-      }
-    }
-
-    if (_targetIndex != _items.length - 1) {
-      setState(() {
-        _targetIndex = _items.length - 1;
-      });
+      DockPositionController.updateTargetIndex(
+        localPosition,
+        _stateController.draggedIndex,
+        _stateController.items.length,
+        (index) {
+          if (_stateController.targetIndex != index) {
+            setState(() {
+              _stateController.targetIndex = index;
+            });
+          }
+        },
+      );
     }
   }
 }
