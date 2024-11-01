@@ -107,8 +107,6 @@ class _DockState extends State<Dock> {
     }
   }
 
-// ... (previous code remains the same)
-
   bool _shouldShrink(int index) {
     return _draggedIndex == index && _isOutsideDock;
   }
